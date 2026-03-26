@@ -1,1 +1,3 @@
 /Data
+# Credenciales personales
+.dvc/config.local
