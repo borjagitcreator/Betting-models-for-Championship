@@ -1,3 +1,14 @@
 /Data
 # Credenciales personales
 .dvc/config.local
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# MLflow
+mlruns/
+*.db
+mlflow_experimentos.db
+
+# Python
+__pycache__/
+*.pyc
