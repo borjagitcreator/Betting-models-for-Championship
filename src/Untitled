@@ -1,0 +1,60 @@
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+# Importamos las funciones matemáticas que hemos creado en el otro archivo
+from ml_models.maher import predict_match_maher, get_kelly_stake
+
+app = FastAPI(title="TFM Betting API")
+
+# 1. Definimos qué datos esperamos recibir del Frontend (Next.js)
+class MatchPredictionRequest(BaseModel):
+    home_team: str
+    away_team: str
+    home_odds: float
+    draw_odds: float
+    away_odds: float
+
+# DATOS TEMPORALES (Mock) - Más adelante los sacaremos de SQLite
+MOCK_TEAM_PARAMS = {
+    "Sheffield Weds": {"Alpha": 1.1, "Beta": 0.9},
+    "Southampton": {"Alpha": 1.3, "Beta": 0.8},
+}
+GLOBAL_AVG_HOME = 1.5
+GLOBAL_AVG_AWAY = 1.2
+
+# 2. Creamos el "Endpoint" (la URL) a la que llamará el frontend
+@app.post("/api/predict")
+async def predict_match(request: MatchPredictionRequest):
+    
+    # Buscamos los parámetros de fuerza de los equipos
+    home_params = MOCK_TEAM_PARAMS.get(request.home_team)
+    away_params = MOCK_TEAM_PARAMS.get(request.away_team)
+
+    if not home_params or not away_params:
+        raise HTTPException(status_code=404, detail="Faltan datos de los equipos")
+
+    # Ejecutamos TU modelo matemático
+    probs = predict_match_maher(
+        alpha_home=home_params["Alpha"],
+        beta_home=home_params["Beta"],
+        alpha_away=away_params["Alpha"],
+        beta_away=away_params["Beta"],
+        avg_home_goals=GLOBAL_AVG_HOME,
+        avg_away_goals=GLOBAL_AVG_AWAY
+    )
+
+    # Calculamos cuánto apostar
+    stake_home = get_kelly_stake(probs["Prob_Home"], request.home_odds)
+    stake_draw = get_kelly_stake(probs["Prob_Draw"], request.draw_odds)
+    stake_away = get_kelly_stake(probs["Prob_Away"], request.away_odds)
+
+    # Devolvemos la respuesta formateada y lista para mostrar en pantalla
+    return {
+        "match": f"{request.home_team} vs {request.away_team}",
+        "probabilities": probs,
+        "kelly_stakes": {
+            "Home": stake_home,
+            "Draw": stake_draw,
+            "Away": stake_away
+        }
+    }
