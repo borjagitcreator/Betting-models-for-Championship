@@ -87,11 +87,18 @@ async def predict_match(request: MatchPredictionRequest):
     # 5. Predicción Maher (usando los mismos parámetros de fuerza base)
     probs_maher = predict_match_maher(match_row, params, avg_h_g, avg_a_g)
 
-    # 6. Calculamos Kelly Stakes basados en Dixon (el modelo superior) y tu Kelly óptimo
-    kelly_frac = config_dixon['kelly']
-    stake_home = get_kelly_stake(probs_dixon['Prob_Home'], request.home_odds, kelly_frac)
-    stake_draw = get_kelly_stake(probs_dixon['Prob_Draw'], request.draw_odds, kelly_frac)
-    stake_away = get_kelly_stake(probs_dixon['Prob_Away'], request.away_odds, kelly_frac)
+    # 6. Calculamos Kelly Stakes
+    kelly_frac = config_dixon['kelly'] # Usamos el mismo para ambos por tu config
+    
+    # Stakes para Dixon
+    stake_home_d = get_kelly_stake(probs_dixon['Prob_Home'], request.home_odds, kelly_frac)
+    stake_draw_d = get_kelly_stake(probs_dixon['Prob_Draw'], request.draw_odds, kelly_frac)
+    stake_away_d = get_kelly_stake(probs_dixon['Prob_Away'], request.away_odds, kelly_frac)
+
+    # Stakes para Maher
+    stake_home_m = get_kelly_stake(probs_maher['Prob_Home'], request.home_odds, kelly_frac)
+    stake_draw_m = get_kelly_stake(probs_maher['Prob_Draw'], request.draw_odds, kelly_frac)
+    stake_away_m = get_kelly_stake(probs_maher['Prob_Away'], request.away_odds, kelly_frac)
 
     return {
         "match": f"{request.home_team} vs {request.away_team}",
@@ -108,10 +115,17 @@ async def predict_match(request: MatchPredictionRequest):
                 "Away": round(float(probs_dixon['Prob_Away']), 4)
             }
         },
-        "kelly_stakes_dixon": {
-            "Home": round(float(stake_home), 4),
-            "Draw": round(float(stake_draw), 4),
-            "Away": round(float(stake_away), 4),
+        "kelly_stakes": {
+            "Maher": {
+                "Home": round(float(stake_home_m), 4),
+                "Draw": round(float(stake_draw_m), 4),
+                "Away": round(float(stake_away_m), 4)
+            },
+            "Dixon": {
+                "Home": round(float(stake_home_d), 4),
+                "Draw": round(float(stake_draw_d), 4),
+                "Away": round(float(stake_away_d), 4)
+            },
             "Kelly_Fraction_Used": kelly_frac
         }
     }
