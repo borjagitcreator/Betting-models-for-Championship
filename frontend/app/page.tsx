@@ -253,10 +253,10 @@ export default function HomePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          date: targetDate, // Usamos la fecha sincronizada
+          date: targetDate, 
           home_team: simHomeTeam,
           away_team: simAwayTeam,
-          target_home_match_no: targetHomeMatchNo, // Usamos el número sincronizado
+          target_home_match_no: targetHomeMatchNo, 
           target_away_match_no: targetAwayMatchNo,
           home_odds: parsedHomeOdds,
           draw_odds: parsedDrawOdds,
@@ -571,7 +571,7 @@ export default function HomePage() {
                           <div key={key} className={`bg-surface-card border rounded-xl p-4 flex flex-col items-center transition-colors ${isValue ? 'border-amber-500/50 shadow-[0_0_15px_rgba(251,191,36,0.1)]' : 'border-zinc-800/60'}`}>
                             <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-2">{label}</div>
                             <div className={isValue ? "text-amber-400 text-xl font-bold tabular-nums drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]" : "text-zinc-600 text-xl tabular-nums"}>
-                              {`${(stake * 100).toFixed(1)}%`}
+                              {stake > 0 ? `${(stake * 100).toFixed(1)}%` : '0.0%'}
                             </div>
                           </div>
                         )

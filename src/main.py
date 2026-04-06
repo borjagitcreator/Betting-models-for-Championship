@@ -126,13 +126,15 @@ def analyze_match(
     
     probs_m = probabilities["Maher"]
     
-    stake_home_m = get_kelly_stake(probs_m['Home'], odds['home'], kelly_frac_m)
-    stake_draw_m = get_kelly_stake(probs_m['Draw'], odds['draw'], kelly_frac_m)
-    stake_away_m = get_kelly_stake(probs_m['Away'], odds['away'], kelly_frac_m)
-    
     is_value_home_m = is_value_bet(probs_m['Home'], odds['home'], margin_m, max_odd_m)
     is_value_draw_m = is_value_bet(probs_m['Draw'], odds['draw'], margin_m, max_odd_m)
     is_value_away_m = is_value_bet(probs_m['Away'], odds['away'], margin_m, max_odd_m)
+
+    # Añadimos la condición (if is_value...) aquí:
+    stake_home_m = get_kelly_stake(probs_m['Home'], odds['home'], kelly_frac_m) if is_value_home_m else 0.0
+    stake_draw_m = get_kelly_stake(probs_m['Draw'], odds['draw'], kelly_frac_m) if is_value_draw_m else 0.0
+    stake_away_m = get_kelly_stake(probs_m['Away'], odds['away'], kelly_frac_m) if is_value_away_m else 0.0
+    
     
     # 3. Kelly Stakes y Value Bets para Dixon
     kelly_frac_d = config_dixon['kelly']
@@ -141,13 +143,14 @@ def analyze_match(
     
     probs_d = probabilities["Dixon"]
     
-    stake_home_d = get_kelly_stake(probs_d['Home'], odds['home'], kelly_frac_d)
-    stake_draw_d = get_kelly_stake(probs_d['Draw'], odds['draw'], kelly_frac_d)
-    stake_away_d = get_kelly_stake(probs_d['Away'], odds['away'], kelly_frac_d)
-    
     is_value_home_d = is_value_bet(probs_d['Home'], odds['home'], margin_d, max_odd_d)
     is_value_draw_d = is_value_bet(probs_d['Draw'], odds['draw'], margin_d, max_odd_d)
     is_value_away_d = is_value_bet(probs_d['Away'], odds['away'], margin_d, max_odd_d)
+
+    # Añadimos la condición (if is_value...) aquí:
+    stake_home_d = get_kelly_stake(probs_d['Home'], odds['home'], kelly_frac_d) if is_value_home_d else 0.0
+    stake_draw_d = get_kelly_stake(probs_d['Draw'], odds['draw'], kelly_frac_d) if is_value_draw_d else 0.0
+    stake_away_d = get_kelly_stake(probs_d['Away'], odds['away'], kelly_frac_d) if is_value_away_d else 0.0
     
     return {
         "probabilities": probabilities,
