@@ -12,14 +12,14 @@ app = FastAPI(title="TFM Betting API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"], # El puerto por defecto de Next.js
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Ruta a tu base de datos (sube un nivel desde src y entra en Data)
 DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Data", "historico.db"))
+
 
 class MatchPredictionRequest(BaseModel):
     date: str
@@ -31,32 +31,152 @@ class MatchPredictionRequest(BaseModel):
     draw_odds: float
     away_odds: float
 
-def load_history_from_db():
-    """Carga el histórico de partidos."""
+
+def get_db_connection():
     if not os.path.exists(DB_PATH):
         raise HTTPException(status_code=500, detail=f"Base de datos no encontrada en {DB_PATH}")
-    
     conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM matches", conn) 
-    conn.close()
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def load_history_from_db():
+    with get_db_connection() as conn:
+        df = pd.read_sql_query("SELECT * FROM matches", conn)
     return df
 
+
 def load_config_from_db(model_name: str):
-    """Carga los hiperparámetros óptimos de MLflow desde la base de datos."""
-    if not os.path.exists(DB_PATH):
-        raise HTTPException(status_code=500, detail=f"Base de datos no encontrada en {DB_PATH}")
-    
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row  # Permite acceder a las columnas por su nombre
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM config WHERE model_name = ?", (model_name,))
-    row = cursor.fetchone()
-    conn.close()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM config WHERE model_name = ?", (model_name,))
+        row = cursor.fetchone()
     
     if row is None:
         raise HTTPException(status_code=500, detail=f"Configuración para el modelo '{model_name}' no encontrada.")
-    
     return dict(row)
+
+
+def safe_odd(x):
+    """Normaliza odds: <=1 o inválido -> 0.0"""
+    try:
+        val = float(x)
+        return val if val > 1 else 0.0
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def is_value_bet(prob: float, odds: float, margin: float, max_odd: float) -> bool:
+    """Determina si es una apuesta de valor según criterios del modelo."""
+    if odds <= 1 or pd.isna(prob) or pd.isna(odds):
+        return False
+    ev = prob * odds
+    return ev >= (1 + margin / 100) and odds <= max_odd
+
+
+def analyze_match(
+    match_row,
+    params,
+    avg_h_g,
+    avg_a_g,
+    config_maher: dict,
+    config_dixon: dict,
+    odds: dict
+) -> dict:
+    """
+    Única fuente de verdad para análisis de un partido.
+    
+    Calcula:
+    - Probabilidades (Maher + Dixon)
+    - Kelly Stakes (usando get_kelly_stake con config['kelly'])
+    - Value Bets (EV >= 1 + margin/100 y odds <= max_odd)
+    
+    Args:
+        match_row: Serie/fila con HomeTeam, AwayTeam
+        params: Parámetros calculados del modelo
+        avg_h_g, avg_a_g: Medias globales
+        config_maher: Config de Maher (kelly, margin, max_odd)
+        config_dixon: Config de Dixon (kelly, margin, max_odd)  
+        odds: Dict con keys 'home', 'draw', 'away' (ya normalizados)
+    
+    Returns:
+        Dict con 'probabilities', 'kelly_stakes', 'value_bets' para ambos modelos
+    """
+    # 1. Probabilidades
+    probs_dixon = predict_match_dixon_coles(match_row, params, avg_h_g, avg_a_g, rho=config_dixon['rho'])
+    probs_maher = predict_match_maher(match_row, params, avg_h_g, avg_a_g)
+    
+    probabilities = {
+        "Maher": {
+            "Home": round(float(probs_maher['Prob_Home']), 4),
+            "Draw": round(float(probs_maher['Prob_Draw']), 4),
+            "Away": round(float(probs_maher['Prob_Away']), 4)
+        },
+        "Dixon": {
+            "Home": round(float(probs_dixon['Prob_Home']), 4),
+            "Draw": round(float(probs_dixon['Prob_Draw']), 4),
+            "Away": round(float(probs_dixon['Prob_Away']), 4)
+        }
+    }
+    
+    # 2. Kelly Stakes y Value Bets para Maher
+    kelly_frac_m = config_maher['kelly']
+    margin_m = config_maher['margin']
+    max_odd_m = config_maher['max_odd']
+    
+    probs_m = probabilities["Maher"]
+    
+    stake_home_m = get_kelly_stake(probs_m['Home'], odds['home'], kelly_frac_m)
+    stake_draw_m = get_kelly_stake(probs_m['Draw'], odds['draw'], kelly_frac_m)
+    stake_away_m = get_kelly_stake(probs_m['Away'], odds['away'], kelly_frac_m)
+    
+    is_value_home_m = is_value_bet(probs_m['Home'], odds['home'], margin_m, max_odd_m)
+    is_value_draw_m = is_value_bet(probs_m['Draw'], odds['draw'], margin_m, max_odd_m)
+    is_value_away_m = is_value_bet(probs_m['Away'], odds['away'], margin_m, max_odd_m)
+    
+    # 3. Kelly Stakes y Value Bets para Dixon
+    kelly_frac_d = config_dixon['kelly']
+    margin_d = config_dixon['margin']
+    max_odd_d = config_dixon['max_odd']
+    
+    probs_d = probabilities["Dixon"]
+    
+    stake_home_d = get_kelly_stake(probs_d['Home'], odds['home'], kelly_frac_d)
+    stake_draw_d = get_kelly_stake(probs_d['Draw'], odds['draw'], kelly_frac_d)
+    stake_away_d = get_kelly_stake(probs_d['Away'], odds['away'], kelly_frac_d)
+    
+    is_value_home_d = is_value_bet(probs_d['Home'], odds['home'], margin_d, max_odd_d)
+    is_value_draw_d = is_value_bet(probs_d['Draw'], odds['draw'], margin_d, max_odd_d)
+    is_value_away_d = is_value_bet(probs_d['Away'], odds['away'], margin_d, max_odd_d)
+    
+    return {
+        "probabilities": probabilities,
+        "kelly_stakes": {
+            "Maher": {
+                "Home": round(float(stake_home_m), 4),
+                "Draw": round(float(stake_draw_m), 4),
+                "Away": round(float(stake_away_m), 4)
+            },
+            "Dixon": {
+                "Home": round(float(stake_home_d), 4),
+                "Draw": round(float(stake_draw_d), 4),
+                "Away": round(float(stake_away_d), 4)
+            },
+            "Kelly_Fraction_Used": kelly_frac_d  # Usamos el de Dixon como referencia
+        },
+        "value_bets": {
+            "Maher": {
+                "Home": is_value_home_m,
+                "Draw": is_value_draw_m,
+                "Away": is_value_away_m
+            },
+            "Dixon": {
+                "Home": is_value_home_d,
+                "Draw": is_value_draw_d,
+                "Away": is_value_away_d
+            }
+        }
+    }
 
 
 @app.get("/api/config")
@@ -80,16 +200,20 @@ async def get_config():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/api/latest-matchday")
 async def get_latest_matchday():
     df_history = load_history_from_db()
     if df_history.empty:
         raise HTTPException(status_code=404, detail="No matches found in database")
     
-    # Get the last 12 matches (1 matchday = 12 matches for 24 teams)
     latest_matches = df_history.sort_values('Date', ascending=False).head(12)
     
-    config_dixon = load_config_from_db('dixon')
+    try:
+        config_maher = load_config_from_db('maher')
+        config_dixon = load_config_from_db('dixon')
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading config: {str(e)}")
     
     results = []
     for _, row in latest_matches.iterrows():
@@ -109,37 +233,51 @@ async def get_latest_matchday():
             
             if params is None:
                 continue
-                
-            probs_dixon = predict_match_dixon_coles(row, params, avg_h_g, avg_a_g, rho=config_dixon['rho'])
-            probs_maher = predict_match_maher(row, params, avg_h_g, avg_a_g)
+            
+            # 1. Definir cuotas para ambas casas
+            b365_odds = {
+                "home": safe_odd(row.get('B365H')),
+                "draw": safe_odd(row.get('B365D')),
+                "away": safe_odd(row.get('B365A'))
+            }
+            pinnacle_odds = {
+                "home": safe_odd(row.get('PSH')),
+                "draw": safe_odd(row.get('PSD')),
+                "away": safe_odd(row.get('PSA'))
+            }
+            
+            # 2. Analizar por separado para cada casa de apuestas
+            b365_analysis = analyze_match(
+                match_row=row, params=params, avg_h_g=avg_h_g, avg_a_g=avg_a_g,
+                config_maher=config_maher, config_dixon=config_dixon, odds=b365_odds
+            )
+            
+            pinnacle_analysis = analyze_match(
+                match_row=row, params=params, avg_h_g=avg_h_g, avg_a_g=avg_a_g,
+                config_maher=config_maher, config_dixon=config_dixon, odds=pinnacle_odds
+            )
             
             results.append({
                 "date": str(row['Date']),
                 "time": str(row.get('Time', '')),
                 "home_team": row['HomeTeam'],
                 "away_team": row['AwayTeam'],
-                "home_match_no": int(row['Home_Match_No']),
-                "away_match_no": int(row['Away_Match_No']),
-                "b365_odds": {"home": row.get('B365H', 0), "draw": row.get('B365D', 0), "away": row.get('B365A', 0)},
-                "pinnacle_odds": {"home": row.get('PSH', 0), "draw": row.get('PSD', 0), "away": row.get('PSA', 0)},
-                "probabilities": {
-                    "Maher": {
-                        "Home": round(float(probs_maher['Prob_Home']), 4),
-                        "Draw": round(float(probs_maher['Prob_Draw']), 4),
-                        "Away": round(float(probs_maher['Prob_Away']), 4)
-                    },
-                    "Dixon": {
-                        "Home": round(float(probs_dixon['Prob_Home']), 4),
-                        "Draw": round(float(probs_dixon['Prob_Draw']), 4),
-                        "Away": round(float(probs_dixon['Prob_Away']), 4)
-                    }
-                }
+                "home_match_no": int(row['Home_Match_No']) if pd.notna(row['Home_Match_No']) else 0,
+                "away_match_no": int(row['Away_Match_No']) if pd.notna(row['Away_Match_No']) else 0,
+                "b365_odds": b365_odds,
+                "pinnacle_odds": pinnacle_odds,
+                "probabilities": b365_analysis["probabilities"], # Las probabilidades son iguales en ambos
+                "b365_kelly": b365_analysis["kelly_stakes"],
+                "b365_values": b365_analysis["value_bets"],
+                "pinnacle_kelly": pinnacle_analysis["kelly_stakes"],
+                "pinnacle_values": pinnacle_analysis["value_bets"]
             })
         except Exception as e:
-            print(f"Error calculating for {row['HomeTeam']} vs {row['AwayTeam']}: {e}")
+            print(f"Error calculating for {row.get('HomeTeam', 'Unknown')} vs {row.get('AwayTeam', 'Unknown')}: {e}")
             continue
             
     return results
+
 
 @app.get("/api/teams")
 async def get_teams():
@@ -147,17 +285,18 @@ async def get_teams():
     teams = sorted(list(set(df_history['HomeTeam'].dropna().unique()) | set(df_history['AwayTeam'].dropna().unique())))
     return {"teams": teams}
 
+
 @app.post("/api/predict")
 async def predict_match(request: MatchPredictionRequest):
-    
-    # 1. Cargar datos
     df_history = load_history_from_db()
     
-    # 2. Cargar Hiperparámetros Dinámicos (Adiós al hardcodeo)
-    config_dixon = load_config_from_db('dixon')
+    try:
+        config_maher = load_config_from_db('maher')
+        config_dixon = load_config_from_db('dixon')
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading config: {str(e)}")
     
     try:
-        # 3. Calculamos los parámetros usando los pesos y el xi (decaimiento) de Dixon
         params, avg_h_g, avg_a_g = get_params_at_time_enhanced(
             target_date=request.date,
             target_home_match_no=request.target_home_match_no,
@@ -176,54 +315,30 @@ async def predict_match(request: MatchPredictionRequest):
     if params is None:
         raise HTTPException(status_code=400, detail="No hay datos históricos suficientes para calcular.")
 
-    # Fila simulada para tus funciones originales
     match_row = pd.Series({'HomeTeam': request.home_team, 'AwayTeam': request.away_team})
-
-    # 4. Predicción Dixon (inyectando su rho óptimo)
-    probs_dixon = predict_match_dixon_coles(match_row, params, avg_h_g, avg_a_g, rho=config_dixon['rho'])
     
-    # 5. Predicción Maher (usando los mismos parámetros de fuerza base)
-    probs_maher = predict_match_maher(match_row, params, avg_h_g, avg_a_g)
-
-    # 6. Calculamos Kelly Stakes
-    kelly_frac = config_dixon['kelly'] # Usamos el mismo para ambos por tu config
+    # Normalizar odds del request
+    odds = {
+        "home": safe_odd(request.home_odds),
+        "draw": safe_odd(request.draw_odds),
+        "away": safe_odd(request.away_odds)
+    }
     
-    # Stakes para Dixon
-    stake_home_d = get_kelly_stake(probs_dixon['Prob_Home'], request.home_odds, kelly_frac)
-    stake_draw_d = get_kelly_stake(probs_dixon['Prob_Draw'], request.draw_odds, kelly_frac)
-    stake_away_d = get_kelly_stake(probs_dixon['Prob_Away'], request.away_odds, kelly_frac)
-
-    # Stakes para Maher
-    stake_home_m = get_kelly_stake(probs_maher['Prob_Home'], request.home_odds, kelly_frac)
-    stake_draw_m = get_kelly_stake(probs_maher['Prob_Draw'], request.draw_odds, kelly_frac)
-    stake_away_m = get_kelly_stake(probs_maher['Prob_Away'], request.away_odds, kelly_frac)
+    # Análisis unificado - MISMA función que en /api/latest-matchday
+    analysis = analyze_match(
+        match_row=match_row,
+        params=params,
+        avg_h_g=avg_h_g,
+        avg_a_g=avg_a_g,
+        config_maher=config_maher,
+        config_dixon=config_dixon,
+        odds=odds
+    )
 
     return {
         "match": f"{request.home_team} vs {request.away_team}",
         "date": request.date,
-        "probabilities": {
-            "Maher": {
-                "Home": round(float(probs_maher['Prob_Home']), 4),
-                "Draw": round(float(probs_maher['Prob_Draw']), 4),
-                "Away": round(float(probs_maher['Prob_Away']), 4)
-            },
-            "Dixon": {
-                "Home": round(float(probs_dixon['Prob_Home']), 4),
-                "Draw": round(float(probs_dixon['Prob_Draw']), 4),
-                "Away": round(float(probs_dixon['Prob_Away']), 4)
-            }
-        },
-        "kelly_stakes": {
-            "Maher": {
-                "Home": round(float(stake_home_m), 4),
-                "Draw": round(float(stake_draw_m), 4),
-                "Away": round(float(stake_away_m), 4)
-            },
-            "Dixon": {
-                "Home": round(float(stake_home_d), 4),
-                "Draw": round(float(stake_draw_d), 4),
-                "Away": round(float(stake_away_d), 4)
-            },
-            "Kelly_Fraction_Used": kelly_frac
-        }
+        "probabilities": analysis["probabilities"],
+        "kelly_stakes": analysis["kelly_stakes"],
+        "value_bets": analysis["value_bets"]
     }
