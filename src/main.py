@@ -58,6 +58,28 @@ def load_config_from_db(model_name: str):
     
     return dict(row)
 
+
+@app.get("/api/config")
+async def get_config():
+    try:
+        config_maher = load_config_from_db('maher')
+        config_dixon = load_config_from_db('dixon')
+        
+        return {
+            "Maher": {
+                "kelly": config_maher['kelly'],
+                "max_odd": config_maher['max_odd'],
+                "margin": config_maher['margin']
+            },
+            "Dixon": {
+                "kelly": config_dixon['kelly'],
+                "max_odd": config_dixon['max_odd'],
+                "margin": config_dixon['margin']
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/latest-matchday")
 async def get_latest_matchday():
     df_history = load_history_from_db()

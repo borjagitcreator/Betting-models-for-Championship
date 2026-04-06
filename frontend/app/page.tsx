@@ -48,20 +48,68 @@ interface PredictionResponse {
 
 type ModelKey = 'Maher' | 'Dixon'
 
+interface ModelConfig {
+  kelly: number
+  max_odd: number
+  margin: number
+}
+
+type ModelConfigs = Record<ModelKey, ModelConfig>
+
+
 /* ─────────────────────────────────────────────────────────────────
-   Helpers
+   Helpers & Components
 ───────────────────────────────────────────────────────────────── */
 const toOdds = (p: number) => (p > 0.001 ? (1 / p).toFixed(2) : '∞')
 const toPct = (p: number) => `${(p * 100).toFixed(1)}%`
 
-function OddsCell({ h, d, a }: { h: number; d: number; a: number }) {
+// Función matemática para calcular la fracción de Kelly óptima
+function calculateKelly(prob: number, odds: number, kellyFraction: number): number {
+  if (!prob || !odds || odds <= 1) return 0;
+  const b = odds - 1;
+  const q = 1 - prob;
+  const stake = (prob * b - q) / b;
+  return stake > 0 ? stake * kellyFraction : 0;
+}
+
+function isBetSuggested(prob: number, odd: number, config: ModelConfig): boolean {
+  if (!config) return false;
+  const ev = prob * odd;
+  const marginThreshold = 1 + config.margin / 100;
+  return ev >= marginThreshold && odd <= config.max_odd;
+}
+
+// Celda dinámica que detecta apuestas de valor y muestra el tooltip
+function OddsCell({ odds, probs, config }: { odds: OddsTriple; probs: Probs; config?: ModelConfig }) {
+  const renderOdd = (odd: number, prob: number) => {
+    const stake = config ? calculateKelly(prob, odd, config.kelly) : 0;
+    const isValue = config ? isBetSuggested(prob, odd, config) : false;
+
+    return (
+      <span 
+        className={`group/tooltip relative ${
+          isValue 
+            ? 'cursor-help text-amber-400 font-bold drop-shadow-[0_0_4px_rgba(251,191,36,0.4)]' 
+            : 'text-zinc-200'
+        }`}
+      >
+        {odd.toFixed(2)}
+        {isValue && (
+          <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover/tooltip:block bg-zinc-900 text-amber-400 text-[10px] px-2 py-1 rounded-md shadow-xl border border-amber-900/50 whitespace-nowrap z-50 font-medium">
+            Kelly: {(stake * 100).toFixed(1)}%
+          </span>
+        )}
+      </span>
+    );
+  };
+
   return (
     <td className="px-6 py-4 text-center tabular-nums whitespace-nowrap text-xs">
-      <span className="text-zinc-200">{h.toFixed(2)}</span>
+      {renderOdd(odds.home, probs.Home)}
       <span className="text-zinc-700 mx-1.5">|</span>
-      <span className="text-zinc-200">{d.toFixed(2)}</span>
+      {renderOdd(odds.draw, probs.Draw)}
       <span className="text-zinc-700 mx-1.5">|</span>
-      <span className="text-zinc-200">{a.toFixed(2)}</span>
+      {renderOdd(odds.away, probs.Away)}
     </td>
   )
 }
@@ -105,16 +153,11 @@ function TeamBadge({ teamName }: { teamName: string }) {
    Page Component
 ───────────────────────────────────────────────────────────────── */
 export default function HomePage() {
-  /* Hydration State */
-  const [isMounted, setIsMounted] = useState(false)
-  
-  useEffect(() => {
-    setIsMounted(true)
-  }, [])
 
   /* Initial Data State */
   const [latestMatches, setLatestMatches] = useState<MatchRow[]>([])
   const [teams, setTeams] = useState<string[]>([])
+  const [modelConfigs, setModelConfigs] = useState<ModelConfigs | null>(null)
   const [isLoadingInitial, setIsLoadingInitial] = useState(true)
   const [initialError, setInitialError] = useState<string | null>(null)
 
@@ -136,22 +179,27 @@ export default function HomePage() {
   useEffect(() => {
     async function fetchInitialData() {
       try {
-        const [matchesRes, teamsRes] = await Promise.all([
+        const [matchesRes, teamsRes, configRes] = await Promise.all([
           fetch('http://localhost:8000/api/latest-matchday'),
-          fetch('http://localhost:8000/api/teams')
+          fetch('http://localhost:8000/api/teams'),
+          fetch('http://localhost:8000/api/config')
         ])
 
         if (!matchesRes.ok) throw new Error('Error al cargar los partidos de la jornada')
         if (!teamsRes.ok) throw new Error('Error al cargar los equipos')
+        if (!configRes.ok) throw new Error('Error al cargar la configuración de modelos')
 
         const matchesData: MatchRow[] = await matchesRes.json()
+        const configData: ModelConfigs = await configRes.json()
+        
         // No necesitamos teamsRes, extraemos los 24 equipos únicos de los partidos actuales
         const currentActiveTeams = Array.from(
           new Set(matchesData.flatMap(m => [m.home_team, m.away_team]))
         ).sort()
   
         setLatestMatches(matchesData)
-        setTeams(currentActiveTeams) 
+        setTeams(currentActiveTeams)
+        setModelConfigs(configData)
           
         // Initialize row models
         const initialRowModels: Record<number, ModelKey> = {}
@@ -309,8 +357,8 @@ export default function HomePage() {
                               <TeamBadge teamName={m.away_team} />
                             </div>
                           </td>
-                          <OddsCell h={m.b365_odds.home} d={m.b365_odds.draw} a={m.b365_odds.away} />
-                          <OddsCell h={m.pinnacle_odds.home} d={m.pinnacle_odds.draw} a={m.pinnacle_odds.away} />
+                          <OddsCell odds={m.b365_odds} probs={rowProbs} config={modelConfigs?.[rowModel]} />
+                          <OddsCell odds={m.pinnacle_odds} probs={rowProbs} config={modelConfigs?.[rowModel]} />
                           <td className="px-6 py-4 text-center">
                             <select
                               value={rowModel}
@@ -356,7 +404,8 @@ export default function HomePage() {
                   <select
                     value={simHomeTeam}
                     onChange={(e) => setSimHomeTeam(e.target.value)}
-                    disabled={!isMounted || isLoadingInitial}
+                    disabled={isLoadingInitial}
+                    suppressHydrationWarning
                     className="w-full bg-surface-card border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-200 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent outline-none appearance-none disabled:opacity-50"
                   >
                     {teams.map(t => <option key={`h-${t}`} value={t}>{t}</option>)}
@@ -368,7 +417,8 @@ export default function HomePage() {
                   <select
                     value={simAwayTeam}
                     onChange={(e) => setSimAwayTeam(e.target.value)}
-                    disabled={!isMounted || isLoadingInitial}
+                    disabled={isLoadingInitial}
+                    suppressHydrationWarning
                     className="w-full bg-surface-card border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-200 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent outline-none appearance-none disabled:opacity-50"
                   >
                     {teams.map(t => <option key={`a-${t}`} value={t}>{t}</option>)}
@@ -420,7 +470,8 @@ export default function HomePage() {
                 )}
                 <button
                   onClick={handleSimulate}
-                  disabled={!isMounted || isSimulating || isLoadingInitial}
+                  disabled={isSimulating || isLoadingInitial}
+                  suppressHydrationWarning
                   className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(37,99,235,0.2)] disabled:opacity-50 disabled:shadow-none"
                 >
                   {isSimulating ? 'Calculando...' : 'Ejecutar Simulación'}
@@ -482,18 +533,21 @@ export default function HomePage() {
                     <div className="grid grid-cols-3 gap-4">
                       {(
                         [
-                          { key: 'Home' as const, label: 'Local' },
-                          { key: 'Draw' as const, label: 'Empate' },
-                          { key: 'Away' as const, label: 'Visitante' },
+                          { key: 'Home' as const, label: 'Local', odd: parseFloat(simOddsHome) },
+                          { key: 'Draw' as const, label: 'Empate', odd: parseFloat(simOddsDraw) },
+                          { key: 'Away' as const, label: 'Visitante', odd: parseFloat(simOddsAway) },
                         ] as const
-                      ).map(({ key, label }) => {
-                        const stake = simResult.kelly_stakes[simModel][key]
-                        const hasValue = stake > 0
+                      ).map(({ key, label, odd }) => {
+                        const prob = simProbs[key]
+                        const config = modelConfigs?.[simModel]
+                        const isValue = config ? isBetSuggested(prob, odd, config) : false
+                        const stake = config ? calculateKelly(prob, odd, config.kelly) : 0
+                        
                         return (
-                          <div key={key} className="bg-surface-card border border-zinc-800/60 rounded-xl p-4 flex flex-col items-center">
+                          <div key={key} className={`bg-surface-card border rounded-xl p-4 flex flex-col items-center transition-colors ${isValue ? 'border-amber-500/50 shadow-[0_0_15px_rgba(251,191,36,0.1)]' : 'border-zinc-800/60'}`}>
                             <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-2">{label}</div>
-                            <div className={hasValue ? "text-emerald-400 text-xl font-bold tabular-nums" : "text-zinc-600 text-xl tabular-nums"}>
-                              {hasValue ? `${(stake * 100).toFixed(1)}%` : '0.0%'}
+                            <div className={isValue ? "text-amber-400 text-xl font-bold tabular-nums drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]" : "text-zinc-600 text-xl tabular-nums"}>
+                              {isValue ? `${(stake * 100).toFixed(1)}%` : '0.0%'}
                             </div>
                           </div>
                         )
