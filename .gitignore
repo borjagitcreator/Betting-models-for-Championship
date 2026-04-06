@@ -1,6 +1,7 @@
 /Data
 # Credenciales personales
 .dvc/config.local
+
 # Jupyter Notebooks
 .ipynb_checkpoints/
 
@@ -12,3 +13,13 @@ mlflow_experimentos.db
 # Python
 __pycache__/
 *.pyc
+
+# Imágenes y Assets
+*.png
+
+# Next.js
+frontend/.next/
+frontend/node_modules/
+
+# md personal files
+architecture.md
