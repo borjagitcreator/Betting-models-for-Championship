@@ -163,9 +163,9 @@ export default function HomePage() {
   const [simHomeTeam, setSimHomeTeam] = useState<string>('')
   const [simAwayTeam, setSimAwayTeam] = useState<string>('')
   const [simModel, setSimModel] = useState<ModelKey>('Maher')
-  const [simOddsHome, setSimOddsHome] = useState<string>('2.50')
-  const [simOddsDraw, setSimOddsDraw] = useState<string>('3.20')
-  const [simOddsAway, setSimOddsAway] = useState<string>('2.80')
+  const [simOddsHome, setSimOddsHome] = useState<string>('2.5')
+  const [simOddsDraw, setSimOddsDraw] = useState<string>('3.2')
+  const [simOddsAway, setSimOddsAway] = useState<string>('2.8')
   const [simResult, setSimResult] = useState<PredictionResponse | null>(null)
   const [isSimulating, setIsSimulating] = useState(false)
   const [simError, setSimError] = useState<string | null>(null)
@@ -212,77 +212,98 @@ export default function HomePage() {
     fetchInitialData()
   }, [])
 
-  /* ── Simulator Logic ───────────────────────────────────────── */
-  const handleSimulate = async () => {
-    if (!simHomeTeam || !simAwayTeam) return
-    if (simHomeTeam === simAwayTeam) {
-      setSimError('Selecciona equipos distintos')
-      return
-    }
+/* ── Simulator Logic ───────────────────────────────────────── */
+const handleSimulate = async (overrideParams?: {
+  home: string; away: string; oddsH: string; oddsD: string; oddsA: string; model: ModelKey
+}) => {
+  const pHome = overrideParams?.home || simHomeTeam
+  const pAway = overrideParams?.away || simAwayTeam
+  const pOddsH = overrideParams?.oddsH || simOddsHome
+  const pOddsD = overrideParams?.oddsD || simOddsDraw
+  const pOddsA = overrideParams?.oddsA || simOddsAway
 
-    setIsSimulating(true)
-    setSimError(null)
-    setSimResult(null)
-
-    try {
-      const homeMatchNo = latestMatches.find(m => m.home_team === simHomeTeam)?.home_match_no || 46
-      const awayMatchNo = latestMatches.find(m => m.away_team === simAwayTeam)?.away_match_no || 46
-
-      const matchRef = latestMatches.find(m => m.home_team === simHomeTeam && m.away_team === simAwayTeam);
-      const targetDate = matchRef ? matchRef.date : new Date().toISOString().split('T')[0];
-      const targetHomeMatchNo = matchRef ? matchRef.home_match_no : (latestMatches.find(m => m.home_team === simHomeTeam)?.home_match_no || 46) + 1;
-      const targetAwayMatchNo = matchRef ? matchRef.away_match_no : (latestMatches.find(m => m.away_team === simAwayTeam)?.away_match_no || 46) + 1;
-
-      const parsedHomeOdds = Number(simOddsHome);
-      const parsedDrawOdds = Number(simOddsDraw);
-      const parsedAwayOdds = Number(simOddsAway);
-
-      const oddsValid =
-        Number.isFinite(parsedHomeOdds) &&
-        Number.isFinite(parsedDrawOdds) &&
-        Number.isFinite(parsedAwayOdds) &&
-        parsedHomeOdds > 1 &&
-        parsedDrawOdds > 1 &&
-        parsedAwayOdds > 1
-
-      if (!oddsValid) {
-        throw new Error("Cuotas inválidas (deben ser > 1.00)");
-      }
-
-      const res = await fetch('http://localhost:8000/api/predict', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: targetDate, 
-          home_team: simHomeTeam,
-          away_team: simAwayTeam,
-          target_home_match_no: targetHomeMatchNo, 
-          target_away_match_no: targetAwayMatchNo,
-          home_odds: parsedHomeOdds,
-          draw_odds: parsedDrawOdds,
-          away_odds: parsedAwayOdds,
-        }),
-      })
-
-      if (!res.ok) {
-        const body = await res.text()
-        throw new Error(`HTTP ${res.status} – ${body}`)
-      }
-
-      const data: PredictionResponse = await res.json()
-      setSimResult(data)
-    } catch (e) {
-      setSimError(e instanceof Error ? e.message : 'Error al conectar con el backend')
-    } finally {
-      setIsSimulating(false)
-    }
+  if (!pHome || !pAway) return
+  if (pHome === pAway) {
+    setSimError('Selecciona equipos distintos')
+    return
   }
 
-  const simProbs = simResult?.probabilities?.[simModel]
-  const simStakes = simResult?.kelly_stakes?.[simModel]
-  const simValues = simResult?.value_bets?.[simModel]
+  setIsSimulating(true)
+  setSimError(null)
+  setSimResult(null)
 
-  /* ── Render ───────────────────────────────────────────────── */
+  try {
+    const matchRef = latestMatches.find(m => m.home_team === pHome && m.away_team === pAway);
+    const targetDate = matchRef ? matchRef.date : new Date().toISOString().split('T')[0];
+    const targetHomeMatchNo = matchRef ? matchRef.home_match_no : (latestMatches.find(m => m.home_team === pHome)?.home_match_no || 46) + 1;
+    const targetAwayMatchNo = matchRef ? matchRef.away_match_no : (latestMatches.find(m => m.away_team === pAway)?.away_match_no || 46) + 1;
+
+    const parsedHomeOdds = Number(pOddsH);
+    const parsedDrawOdds = Number(pOddsD);
+    const parsedAwayOdds = Number(pOddsA);
+
+    const oddsValid =
+      Number.isFinite(parsedHomeOdds) && Number.isFinite(parsedDrawOdds) && Number.isFinite(parsedAwayOdds) &&
+      parsedHomeOdds > 1 && parsedDrawOdds > 1 && parsedAwayOdds > 1
+
+    if (!oddsValid) throw new Error("Cuotas inválidas (deben ser > 1.00)");
+
+    const res = await fetch('http://localhost:8000/api/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        date: targetDate, 
+        home_team: pHome,
+        away_team: pAway,
+        target_home_match_no: targetHomeMatchNo, 
+        target_away_match_no: targetAwayMatchNo,
+        home_odds: parsedHomeOdds,
+        draw_odds: parsedDrawOdds,
+        away_odds: parsedAwayOdds,
+      }),
+    })
+
+    if (!res.ok) {
+      const body = await res.text()
+      throw new Error(`HTTP ${res.status} – ${body}`)
+    }
+
+    const data: PredictionResponse = await res.json()
+    setSimResult(data)
+  } catch (e) {
+    setSimError(e instanceof Error ? e.message : 'Error al conectar con el backend')
+  } finally {
+    setIsSimulating(false)
+  }
+}
+
+const handleQuickSimulate = (match: MatchRow, bookie: 'b365' | 'pinnacle', currentModel: ModelKey) => {
+  const odds = bookie === 'b365' ? match.b365_odds : match.pinnacle_odds;
+  
+  setSimHomeTeam(match.home_team);
+  setSimAwayTeam(match.away_team);
+  setSimOddsHome(String(odds.home));
+  setSimOddsDraw(String(odds.draw));
+  setSimOddsAway(String(odds.away));
+  setSimModel(currentModel);
+
+  handleSimulate({
+    home: match.home_team,
+    away: match.away_team,
+    oddsH: String(odds.home),
+    oddsD: String(odds.draw),
+    oddsA: String(odds.away),
+    model: currentModel
+  });
+
+  document.getElementById('simulador-section')?.scrollIntoView({ behavior: 'smooth' });
+}
+
+const simProbs = simResult?.probabilities?.[simModel]
+const simStakes = simResult?.kelly_stakes?.[simModel]
+const simValues = simResult?.value_bets?.[simModel]
+
+/* ── Render ───────────────────────────────────────────────── */
   return (
     <div className="min-h-screen bg-surface-base text-zinc-300 font-sans selection:bg-zinc-800">
 
@@ -339,6 +360,7 @@ export default function HomePage() {
                     <th className="px-6 py-4 text-center font-medium">
                       Cuota Predicha <span className="text-zinc-700 ml-1">1|X|2</span>
                     </th>
+                    <th className="px-6 py-4 text-center font-medium">Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800/50">
@@ -371,10 +393,14 @@ export default function HomePage() {
                           <td className="px-6 py-4 text-zinc-400 whitespace-nowrap text-xs font-light">
                             {m.date} {m.time}
                           </td>
-                          <td className="px-6 py-4 text-center whitespace-nowrap">
-                            <span className="text-zinc-200 font-medium">{m.home_team}</span>
-                            <span className="text-zinc-600 mx-3 text-xs font-light">vs</span>
-                            <span className="text-zinc-200 font-medium">{m.away_team}</span>
+                          <td className="px-6 py-4 text-center">
+                            <div className="flex items-center justify-center gap-3 whitespace-nowrap">
+                              <span className="text-zinc-200 font-medium text-right w-24">{m.home_team}</span>
+                              <TeamBadge teamName={m.home_team} />
+                              <span className="text-zinc-600 text-xs font-light">vs</span>
+                              <TeamBadge teamName={m.away_team} />
+                              <span className="text-zinc-200 font-medium text-left w-24">{m.away_team}</span>
+                            </div>
                           </td>
                           
                           {/* Celda Bet365 con sus propios cálculos */}
@@ -405,6 +431,22 @@ export default function HomePage() {
                             <span className="text-zinc-700 mx-1.5">|</span>
                             <span className="text-zinc-200 font-medium">{toOdds(rowProbs.Away)}</span>
                           </td>
+                          <td className="px-6 py-4 text-center whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => handleQuickSimulate(m, 'b365', rowModel)}
+                                className="bg-emerald-600/10 hover:bg-emerald-600/30 text-emerald-500 text-[10px] uppercase font-bold px-3 py-1.5 rounded-lg border border-emerald-500/30 transition-colors"
+                              >
+                                B365
+                              </button>
+                              <button
+                                onClick={() => handleQuickSimulate(m, 'pinnacle', rowModel)}
+                                className="bg-orange-600/10 hover:bg-orange-600/30 text-orange-500 text-[10px] uppercase font-bold px-3 py-1.5 rounded-lg border border-orange-500/30 transition-colors"
+                              >
+                                PINN
+                              </button>
+                            </div>
+                          </td>
                         </tr>
                       )
                     })
@@ -416,7 +458,7 @@ export default function HomePage() {
         </section>
 
         {/* ════════════ SIMULATOR ══════════════════════════════ */}
-        <section className="space-y-6">
+        <section id="simulador-section" className="space-y-6 scroll-mt-24">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-medium tracking-wide text-zinc-100">
               Simulador Independiente
@@ -434,8 +476,10 @@ export default function HomePage() {
                     value={simHomeTeam}
                     onChange={(e) => setSimHomeTeam(e.target.value)}
                     disabled={isLoadingInitial}
+                    suppressHydrationWarning
                     className="w-full bg-surface-card border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-200 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent outline-none appearance-none disabled:opacity-50"
                   >
+                    <option value="" disabled>Selecciona un equipo</option>
                     {teams.map(t => <option key={`h-${t}`} value={t}>{t}</option>)}
                   </select>
                 </div>
@@ -446,8 +490,10 @@ export default function HomePage() {
                     value={simAwayTeam}
                     onChange={(e) => setSimAwayTeam(e.target.value)}
                     disabled={isLoadingInitial}
+                    suppressHydrationWarning
                     className="w-full bg-surface-card border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-200 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent outline-none appearance-none disabled:opacity-50"
                   >
+                    <option value="" disabled>Selecciona un equipo</option>
                     {teams.map(t => <option key={`a-${t}`} value={t}>{t}</option>)}
                   </select>
                 </div>
@@ -457,8 +503,10 @@ export default function HomePage() {
                   <select
                     value={simModel}
                     onChange={(e) => setSimModel(e.target.value as ModelKey)}
+                    suppressHydrationWarning
                     className="w-full bg-surface-card border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-200 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent outline-none appearance-none"
                   >
+                    <option value="" disabled>Selecciona un modelo</option>
                     <option value="Maher">Maher (Poisson Estático)</option>
                     <option value="Dixon">Dixon-Coles (Dinámico)</option>
                   </select>
@@ -472,18 +520,21 @@ export default function HomePage() {
                       type="number" step="0.01" min="1.01"
                       value={simOddsHome}
                       onChange={(e) => setSimOddsHome(e.target.value)}
+                      suppressHydrationWarning
                       className="w-full bg-surface-card border border-zinc-800 rounded-xl px-3 py-2.5 text-center text-sm text-zinc-200 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                     <input
                       type="number" step="0.01" min="1.01"
                       value={simOddsDraw}
                       onChange={(e) => setSimOddsDraw(e.target.value)}
+                      suppressHydrationWarning
                       className="w-full bg-surface-card border border-zinc-800 rounded-xl px-3 py-2.5 text-center text-sm text-zinc-200 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                     <input
                       type="number" step="0.01" min="1.01"
                       value={simOddsAway}
                       onChange={(e) => setSimOddsAway(e.target.value)}
+                      suppressHydrationWarning
                       className="w-full bg-surface-card border border-zinc-800 rounded-xl px-3 py-2.5 text-center text-sm text-zinc-200 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                   </div>
@@ -496,7 +547,7 @@ export default function HomePage() {
                   </div>
                 )}
                 <button
-                  onClick={handleSimulate}
+                  onClick={() => handleSimulate()}
                   disabled={isSimulating || isLoadingInitial}
                   className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(37,99,235,0.2)] disabled:opacity-50 disabled:shadow-none"
                 >
