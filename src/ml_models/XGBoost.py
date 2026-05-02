@@ -115,6 +115,10 @@ def get_features_for_match(target_date, home_team, away_team, df_history, odds_d
     target_row = df_processed.iloc[-1].copy()
     
     # 5. Añadimos las variables de mercado (probabilidades implícitas de las odds recibidas de la UI)
+    # Validamos que las cuotas sean mayores que 0 antes de dividir
+    if odds_dict['home'] <= 0 or odds_dict['draw'] <= 0 or odds_dict['away'] <= 0:
+        return None
+
     margin = (1/odds_dict['home']) + (1/odds_dict['draw']) + (1/odds_dict['away'])
     target_row['prob_B365H'] = (1/odds_dict['home']) / margin
     target_row['prob_B365D'] = (1/odds_dict['draw']) / margin
