@@ -70,8 +70,18 @@ def safe_odd(x):
 
 
 def is_value_bet(prob: float, odds: float, margin: float, max_odd: float) -> bool:
-    """Determina si es una apuesta de valor según criterios del modelo."""
-    if odds <= 1 or pd.isna(prob) or pd.isna(odds):
+    """Determina si es una apuesta de valor según criterios del modelo.
+    
+    Args:
+        prob: Probabilidad estimada por el modelo (0-1)
+        odds: Cuota ofrecida por el mercado
+        margin: Umbral EV mínimo (ej: 1.05 = 5% de margen)
+        max_odd: Cuota máxima aceptable (filtro de liquidez)
+    
+    Returns:
+        True si EV >= margin Y odds <= max_odd
+    """
+    if odds <= 1 or pd.isna(prob) or pd.isna(odds) or prob <= 0:
         return False
     ev = prob * odds
     return ev >= margin and odds <= max_odd

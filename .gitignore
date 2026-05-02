@@ -13,16 +13,32 @@ mlflow_experimentos.db
 # Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+
+# Modelos entrenados (DVC tracked)
+*.joblib
+*.pkl
+*.h5
+*.model
+
+# Scripts de diagnóstico local
+test_api.py
+update_db.py
 
 # Imágenes y Assets
 *.png
+*.jpg
+*.jpeg
+*.svg
 
 # Next.js
 frontend/.next/
 frontend/node_modules/
+frontend/dist/
 
 # md personal files
 architecture.md
-
-# test_api.py para probar la API
-test_api.py
+CLAUDE.md
+AGENTS.md

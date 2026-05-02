@@ -41,11 +41,12 @@ interface MatchRow {
   probabilities: {
     Maher: Probs
     Dixon: Probs
+    XGBoost: Probs
   }
-  b365_kelly: { Maher: Stakes; Dixon: Stakes }
-  b365_values: { Maher: ValueBets; Dixon: ValueBets }
-  pinnacle_kelly: { Maher: Stakes; Dixon: Stakes }
-  pinnacle_values: { Maher: ValueBets; Dixon: ValueBets }
+  b365_kelly: { Maher: Stakes; Dixon: Stakes; XGBoost: Stakes }
+  b365_values: { Maher: ValueBets; Dixon: ValueBets; XGBoost: ValueBets }
+  pinnacle_kelly: { Maher: Stakes; Dixon: Stakes; XGBoost: Stakes }
+  pinnacle_values: { Maher: ValueBets; Dixon: ValueBets; XGBoost: ValueBets }
 }
 
 interface PredictionResponse {
@@ -54,19 +55,26 @@ interface PredictionResponse {
   probabilities: {
     Maher: Probs
     Dixon: Probs
+    XGBoost: Probs
   }
   kelly_stakes: {
     Maher: Stakes
     Dixon: Stakes
-    Kelly_Fraction_Used: number
+    XGBoost: Stakes
+    Kelly_Fraction_Used: {
+      Maher: number
+      Dixon: number
+      XGBoost: number
+    }
   }
   value_bets: {
     Maher: ValueBets
     Dixon: ValueBets
+    XGBoost: ValueBets
   }
 }
 
-type ModelKey = 'Maher' | 'Dixon'
+type ModelKey = 'Maher' | 'Dixon' | 'XGBoost'
 
 /* ─────────────────────────────────────────────────────────────────
    Helpers & Components
@@ -191,7 +199,7 @@ export default function HomePage() {
         setLatestMatches(matchesData)
         setTeams(currentActiveTeams)
           
-        const initialRowModels: Record<number, ModelKey> = {}
+        const initialRowModels: Record<string, ModelKey> = {}
         matchesData.forEach(m => {
           const key = `${m.home_team}-${m.away_team}-${m.date}`
           initialRowModels[key] = 'Maher'
@@ -422,6 +430,7 @@ const simValues = simResult?.value_bets?.[simModel]
                             >
                               <option value="Maher">Maher</option>
                               <option value="Dixon">Dixon-Coles</option>
+                              <option value="XGBoost">XGBoost (ML)</option>
                             </select>
                           </td>
                           <td className="px-6 py-4 text-center tabular-nums whitespace-nowrap text-xs">
@@ -509,6 +518,7 @@ const simValues = simResult?.value_bets?.[simModel]
                     <option value="" disabled>Selecciona un modelo</option>
                     <option value="Maher">Maher (Poisson Estático)</option>
                     <option value="Dixon">Dixon-Coles (Dinámico)</option>
+                    <option value="XGBoost">XGBoost (ML - Gradient Boosting)</option>
                   </select>
                 </div>
               </div>
@@ -604,8 +614,11 @@ const simValues = simResult?.value_bets?.[simModel]
 
                   {/* Kelly Stakes */}
                   <div className="pt-8 border-t border-zinc-800/50 max-w-2xl mx-auto w-full">
-                    <p className="text-center text-[10px] text-zinc-500 uppercase tracking-widest mb-6 font-medium">
-                      Kelly Stakes Sugeridos (Fracción: {((simResult.kelly_stakes?.Kelly_Fraction_Used || 1) * 100).toFixed(0)}%)
+                    <p className="text-center text-[10px] text-zinc-500 uppercase tracking-widest mb-2 font-medium">
+                      Kelly Stakes Sugeridos
+                    </p>
+                    <p className="text-center text-[9px] text-zinc-600 mb-6">
+                      {simModel === 'XGBoost' ? 'Fracción: 5% (ML Conservador)' : `Fracción: ${((simResult.kelly_stakes?.Kelly_Fraction_Used?.[simModel] || 0.25) * 100).toFixed(0)}%`}
                     </p>
                     <div className="grid grid-cols-3 gap-4">
                       {(

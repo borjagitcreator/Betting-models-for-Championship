@@ -82,8 +82,14 @@ Construir un framework reproducible para:
 {
   "match": "...",
   "date": "...",
-  "probabilities": { "Maher": {}, "Dixon": {} },
-  "kelly_stakes": { "Maher": {}, "Dixon": {}, "Kelly_Fraction_Used": k }
+  "probabilities": { "Maher": {}, "Dixon": {}, "XGBoost": {} },
+  "kelly_stakes": { 
+    "Maher": {}, 
+    "Dixon": {}, 
+    "XGBoost": {},
+    "Kelly_Fraction_Used": { "Maher": 0.25, "Dixon": 0.25, "XGBoost": 0.05 }
+  },
+  "value_bets": { "Maher": {}, "Dixon": {}, "XGBoost": {} }
 }
 ```
 
@@ -118,6 +124,19 @@ Extensión dinámica del modelo de Maher con:
 
 ---
 
+### 3. Modelo XGBoost (`XGBoost.ipynb`)
+
+Modelo de Machine Learning basado en Gradient Boosting:
+- **Features dinámicas**: Calcula rachas de forma ponderada (últimos 7 partidos), diferenciales de goles, corners, tiros a puerta, y momentum de equipo.
+- **Forma dinámica**: Simula el sistema de forma del FM usando γ=0.33 para capturar "estado de forma" actual.
+- **Calibración probabilística**: Usa `CalibratedClassifierCV` con `cv=3` para outputs bien calibrados.
+- **Features de mercado**: Incorpora probabilidades implícitas de Bet365 como features (no como target).
+- **Requiere**: Features estrictamente float64; manejo defensivo de NaNs.
+
+El modelo entrena sobre el historial completo y predice la probabilidad de victoria local, empate o victoria visitante.
+
+---
+
 ### Kelly Criterion
 
 Tras estimar las probabilidades, se calculan las apuestas fraccionales de Kelly por resultado:
@@ -134,13 +153,13 @@ El stake se fija a 0 si el modelo no detecta valor esperado positivo frente a la
 
 ```
 1. Carga inicial   → Frontend obtiene la última jornada y filtra los 24 equipos activos.
-2. Input usuario   → Selecciona partido + modelo + cuotas de su casa de apuestas (1|X|2).
+2. Input usuario   → Selecciona partido + modelo (Maher/Dixon/XGBoost) + cuotas de su casa (1|X|2).
 3. Ejecución       → Hace clic en "EJECUTAR SIMULACIÓN".
 4. Request         → Frontend envía POST a FastAPI con contexto del partido y cuotas.
 5. Base de datos   → FastAPI carga el historial de partidos desde SQLite.
-6. Inferencia      → Corre el modelo Maher o Dixon-Coles.
+6. Inferencia      → Corre el modelo seleccionado (Maher, Dixon-Coles o XGBoost).
 7. Value betting   → Kelly stakes calculados dinámicamente contra las cuotas del usuario.
-8. Respuesta       → JSON devuelto al frontend.
+8. Respuesta       → JSON devuelto al frontend con probs, Kellys y value bets para los 3 modelos.
 9. UI update       → Barra de probabilidades animada + grid de Kelly Stakes con EV+ resaltado.
 ```
 
@@ -160,17 +179,23 @@ El stake se fija a 0 si el modelo no detecta valor esperado positivo frente a la
 TFM/
 ├── Data/
 │   ├── historico.db                   ← Base de datos SQLite con historial de partidos
-│   └── Segunda_inglesa_data.csv       ← Datos brutos EFL Championship (DVC-tracked)
+│   ├── Segunda_inglesa_data.csv       ← Datos brutos EFL Championship (DVC-tracked)
+│   └── xgboost_calibrated.joblib      ← Modelo XGBoost entrenado (DVC-tracked)
 ├── notebooks/
 │   ├── Maher.ipynb                    ← Entrenamiento y optimización de pesos
-│   └── Dixon_Coles.ipynb              ← Modelo extendido con ξ y ρ
+│   ├── Dixon_Coles.ipynb              ← Modelo extendido con ξ y ρ
+│   └── XGBoost.ipynb                  ← Modelo ML con features dinámicas
 ├── src/
-│   └── (aplicación FastAPI)
+│   ├── main.py                        ← API FastAPI (3 modelos)
+│   └── ml_models/
+│       ├── Maher.py
+│       ├── Dixon_Coles.py
+│       └── XGBoost.py                 ← Features dinámicas + inferencia
 ├── frontend/
 │   ├── app/
 │   │   ├── layout.tsx
 │   │   ├── globals.css                ← Tailwind 4 + variables de color del tema
-│   │   └── page.tsx                   ← Dashboard principal y simulador
+│   │   └── page.tsx                   ← Dashboard principal y simulador (3 modelos)
 │   ├── public/
 │   │   └── logos/                     ← Escudos de equipos (.png)
 │   └── package.json
@@ -197,7 +222,8 @@ npm run dev          # → http://localhost:3000
 
 ## Consideraciones de diseño
 
-- Modelo probabilístico basado en Poisson independiente con corrección de dependencia (Dixon-Coles).
+- Tres modelos predictivos: Poisson estático (Maher), Poisson dinámico con dependencia (Dixon-Coles), y Gradient Boosting (XGBoost).
 - Separación explícita entre estimación de parámetros, evaluación de mercado y análisis de value betting.
+- Backend como única fuente de verdad: Kelly stakes y value bets calculados exclusivamente en FastAPI.
 - Diseño orientado a reproducibilidad y extensión a otras ligas.
 - Errores de API expuestos inline en la UI con banner rojo descartable, sin recarga de página.
