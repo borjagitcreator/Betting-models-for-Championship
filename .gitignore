@@ -23,3 +23,6 @@ frontend/node_modules/
 
 # md personal files
 architecture.md
+
+# test_api.py para probar la API
+test_api.py

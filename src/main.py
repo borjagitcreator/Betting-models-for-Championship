@@ -7,6 +7,7 @@ import os
 
 from ml_models.Maher import predict_match_maher, get_kelly_stake
 from ml_models.Dixon_Coles import get_params_at_time_enhanced, predict_match_dixon_coles
+from ml_models.XGBoost import get_features_for_match, predict_match_xgboost
 
 app = FastAPI(title="TFM Betting API")
 
@@ -43,6 +44,8 @@ def get_db_connection():
 def load_history_from_db():
     with get_db_connection() as conn:
         df = pd.read_sql_query("SELECT * FROM matches", conn)
+
+    df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
     return df
 
 
@@ -71,7 +74,7 @@ def is_value_bet(prob: float, odds: float, margin: float, max_odd: float) -> boo
     if odds <= 1 or pd.isna(prob) or pd.isna(odds):
         return False
     ev = prob * odds
-    return ev >= (1 + margin / 100) and odds <= max_odd
+    return ev >= margin and odds <= max_odd
 
 
 def analyze_match(
@@ -81,7 +84,9 @@ def analyze_match(
     avg_a_g,
     config_maher: dict,
     config_dixon: dict,
-    odds: dict
+    config_xg: dict,
+    odds: dict,
+    df_history: pd.DataFrame 
 ) -> dict:
     """
     Única fuente de verdad para análisis de un partido.
@@ -105,6 +110,27 @@ def analyze_match(
     # 1. Probabilidades
     probs_dixon = predict_match_dixon_coles(match_row, params, avg_h_g, avg_a_g, rho=config_dixon['rho'])
     probs_maher = predict_match_maher(match_row, params, avg_h_g, avg_a_g)
+    probs_xg_dict = {"Home": 0.0, "Draw": 0.0, "Away": 0.0}
+    target_date = match_row.get('Date')
+
+    if target_date:
+        X_pred = get_features_for_match(
+            target_date=target_date, 
+            home_team=match_row['HomeTeam'], 
+            away_team=match_row['AwayTeam'], 
+            df_history=df_history, 
+            odds_dict=odds
+        )
+        if X_pred is not None:
+            try:
+                probs_xg_raw = predict_match_xgboost(X_pred)
+                probs_xg_dict = {
+                    "Home": round(float(probs_xg_raw['Prob_Home']), 4),
+                    "Draw": round(float(probs_xg_raw['Prob_Draw']), 4),
+                    "Away": round(float(probs_xg_raw['Prob_Away']), 4)
+                }
+            except Exception as e:
+                print(f"Error prediciendo XGBoost para {match_row['HomeTeam']} vs {match_row['AwayTeam']}: {e}")
     
     probabilities = {
         "Maher": {
@@ -116,7 +142,8 @@ def analyze_match(
             "Home": round(float(probs_dixon['Prob_Home']), 4),
             "Draw": round(float(probs_dixon['Prob_Draw']), 4),
             "Away": round(float(probs_dixon['Prob_Away']), 4)
-        }
+        },
+        "XGBoost": probs_xg_dict
     }
     
     # 2. Kelly Stakes y Value Bets para Maher
@@ -152,6 +179,21 @@ def analyze_match(
     stake_draw_d = get_kelly_stake(probs_d['Draw'], odds['draw'], kelly_frac_d) if is_value_draw_d else 0.0
     stake_away_d = get_kelly_stake(probs_d['Away'], odds['away'], kelly_frac_d) if is_value_away_d else 0.0
     
+    # 4. Kelly Stakes y Value Bets para XGBoost
+    kelly_frac_x = config_xg.get('kelly')
+    margin_x = config_xg.get('margin')
+    max_odd_x = config_xg.get('max_odd')
+    
+    probs_x = probabilities["XGBoost"]
+    
+    is_value_home_x = is_value_bet(probs_x['Home'], odds['home'], margin_x, max_odd_x)
+    is_value_draw_x = is_value_bet(probs_x['Draw'], odds['draw'], margin_x, max_odd_x)
+    is_value_away_x = is_value_bet(probs_x['Away'], odds['away'], margin_x, max_odd_x)
+
+    stake_home_x = get_kelly_stake(probs_x['Home'], odds['home'], kelly_frac_x) if is_value_home_x else 0.0
+    stake_draw_x = get_kelly_stake(probs_x['Draw'], odds['draw'], kelly_frac_x) if is_value_draw_x else 0.0
+    stake_away_x = get_kelly_stake(probs_x['Away'], odds['away'], kelly_frac_x) if is_value_away_x else 0.0
+
     return {
         "probabilities": probabilities,
         "kelly_stakes": {
@@ -165,7 +207,16 @@ def analyze_match(
                 "Draw": round(float(stake_draw_d), 4),
                 "Away": round(float(stake_away_d), 4)
             },
-            "Kelly_Fraction_Used": kelly_frac_d  # Usamos el de Dixon como referencia
+            "XGBoost": {  # <-- AÑADIDO
+                "Home": round(float(stake_home_x), 4),
+                "Draw": round(float(stake_draw_x), 4),
+                "Away": round(float(stake_away_x), 4)
+            },
+            "Kelly_Fraction_Used": {
+                "Maher": kelly_frac_m,
+                "Dixon": kelly_frac_d,
+                "XGBoost": kelly_frac_x
+            }
         },
         "value_bets": {
             "Maher": {
@@ -177,6 +228,11 @@ def analyze_match(
                 "Home": is_value_home_d,
                 "Draw": is_value_draw_d,
                 "Away": is_value_away_d
+            },
+            "XGBoost": {
+                "Home": is_value_home_x,
+                "Draw": is_value_draw_x,
+                "Away": is_value_away_x
             }
         }
     }
@@ -188,6 +244,11 @@ async def get_config():
         config_maher = load_config_from_db('maher')
         config_dixon = load_config_from_db('dixon')
         
+        try:
+            config_xg = load_config_from_db('xgboost')
+        except:
+            config_xg = {'kelly': 0.05, 'max_odd': 5.0, 'margin': 1.05}
+        
         return {
             "Maher": {
                 "kelly": config_maher['kelly'],
@@ -198,6 +259,11 @@ async def get_config():
                 "kelly": config_dixon['kelly'],
                 "max_odd": config_dixon['max_odd'],
                 "margin": config_dixon['margin']
+            },
+            "XGBoost": {
+                "kelly": config_xg['kelly'],
+                "max_odd": config_xg['max_odd'],
+                "margin": config_xg['margin']
             }
         }
     except Exception as e:
@@ -215,6 +281,10 @@ async def get_latest_matchday():
     try:
         config_maher = load_config_from_db('maher')
         config_dixon = load_config_from_db('dixon')
+        try:
+            config_xg = load_config_from_db('xgboost')
+        except:
+            config_xg = {'kelly': 0.05, 'max_odd': 5.0, 'margin': 1.05}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading config: {str(e)}")
     
@@ -252,12 +322,14 @@ async def get_latest_matchday():
             # 2. Analizar por separado para cada casa de apuestas
             b365_analysis = analyze_match(
                 match_row=row, params=params, avg_h_g=avg_h_g, avg_a_g=avg_a_g,
-                config_maher=config_maher, config_dixon=config_dixon, odds=b365_odds
+                config_maher=config_maher, config_dixon=config_dixon, 
+                config_xg=config_xg, odds=b365_odds, df_history=df_history 
             )
             
             pinnacle_analysis = analyze_match(
                 match_row=row, params=params, avg_h_g=avg_h_g, avg_a_g=avg_a_g,
-                config_maher=config_maher, config_dixon=config_dixon, odds=pinnacle_odds
+                config_maher=config_maher, config_dixon=config_dixon, 
+                config_xg=config_xg, odds=pinnacle_odds, df_history=df_history 
             )
             
             results.append({
@@ -296,6 +368,11 @@ async def predict_match(request: MatchPredictionRequest):
     try:
         config_maher = load_config_from_db('maher')
         config_dixon = load_config_from_db('dixon')
+
+        try:
+            config_xg = load_config_from_db('xgboost')
+        except:
+            config_xg = {'kelly': 0.05, 'max_odd': 5.0, 'margin': 1.05}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading config: {str(e)}")
     
@@ -318,7 +395,13 @@ async def predict_match(request: MatchPredictionRequest):
     if params is None:
         raise HTTPException(status_code=400, detail="No hay datos históricos suficientes para calcular.")
 
-    match_row = pd.Series({'HomeTeam': request.home_team, 'AwayTeam': request.away_team})
+    match_row = pd.Series({
+        'Date': request.date,
+        'HomeTeam': request.home_team,
+        'AwayTeam': request.away_team,
+        'Home_Match_No': request.target_home_match_no,
+        'Away_Match_No': request.target_away_match_no
+    })
     
     # Normalizar odds del request
     odds = {
@@ -335,7 +418,9 @@ async def predict_match(request: MatchPredictionRequest):
         avg_a_g=avg_a_g,
         config_maher=config_maher,
         config_dixon=config_dixon,
-        odds=odds
+        config_xg=config_xg,
+        odds=odds,
+        df_history=df_history
     )
 
     return {
