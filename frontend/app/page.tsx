@@ -89,7 +89,15 @@ interface OddsCellProps {
 }
 
 function OddsCell({ odds, stakes, values }: OddsCellProps) {
+  // Verificar si toda la casa de apuestas no tiene datos (todas las cuotas son 0)
+  const hasNoData = odds.home === 0 && odds.draw === 0 && odds.away === 0
+
   const renderOdd = (odd: number, stake: number, isValue: boolean) => {
+    // Si la cuota es 0, mostrar N/A en lugar de 0.00
+    if (odd === 0) {
+      return <span className="text-zinc-600 font-light">-</span>
+    }
+
     return (
       <span 
         className={`group/tooltip relative ${
@@ -107,6 +115,15 @@ function OddsCell({ odds, stakes, values }: OddsCellProps) {
       </span>
     );
   };
+
+  // Si no hay datos de esta casa, mostrar mensaje unificado
+  if (hasNoData) {
+    return (
+      <td className="px-6 py-4 text-center whitespace-nowrap text-xs">
+        <span className="text-zinc-600 italic">N/A</span>
+      </td>
+    )
+  }
 
   return (
     <td className="px-6 py-4 text-center tabular-nums whitespace-nowrap text-xs">

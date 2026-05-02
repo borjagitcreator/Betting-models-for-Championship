@@ -283,6 +283,10 @@ async def get_config():
 @app.get("/api/latest-matchday")
 async def get_latest_matchday():
     df_history = load_history_from_db()
+    
+    df_history['Date'] = pd.to_datetime(df_history['Date'], dayfirst=True, errors='coerce')
+    df_history = df_history.dropna(subset=['Date'])
+    
     if df_history.empty:
         raise HTTPException(status_code=404, detail="No matches found in database")
     
@@ -309,15 +313,15 @@ async def get_latest_matchday():
                 away_team=row['AwayTeam'],
                 xi=config_dixon['xi'],
                 df_history=df_history,
-                w_g=config_dixon['w_g'], 
-                w_st=config_dixon['w_st'], 
+                w_g=config_dixon['w_g'],
+                w_st=config_dixon['w_st'],
                 w_tot=config_dixon['w_tot']
             )
             
             if params is None:
+                print(f"DEBUG: Params es None para {row['HomeTeam']} vs {row['AwayTeam']}")
                 continue
             
-            # 1. Definir cuotas para ambas casas
             b365_odds = {
                 "home": safe_odd(row.get('B365H')),
                 "draw": safe_odd(row.get('B365D')),
@@ -329,17 +333,16 @@ async def get_latest_matchday():
                 "away": safe_odd(row.get('PSA'))
             }
             
-            # 2. Analizar por separado para cada casa de apuestas
             b365_analysis = analyze_match(
                 match_row=row, params=params, avg_h_g=avg_h_g, avg_a_g=avg_a_g,
-                config_maher=config_maher, config_dixon=config_dixon, 
-                config_xg=config_xg, odds=b365_odds, df_history=df_history 
+                config_maher=config_maher, config_dixon=config_dixon,
+                config_xg=config_xg, odds=b365_odds, df_history=df_history
             )
             
             pinnacle_analysis = analyze_match(
                 match_row=row, params=params, avg_h_g=avg_h_g, avg_a_g=avg_a_g,
-                config_maher=config_maher, config_dixon=config_dixon, 
-                config_xg=config_xg, odds=pinnacle_odds, df_history=df_history 
+                config_maher=config_maher, config_dixon=config_dixon,
+                config_xg=config_xg, odds=pinnacle_odds, df_history=df_history
             )
             
             results.append({
@@ -351,16 +354,18 @@ async def get_latest_matchday():
                 "away_match_no": int(row['Away_Match_No']) if pd.notna(row['Away_Match_No']) else 0,
                 "b365_odds": b365_odds,
                 "pinnacle_odds": pinnacle_odds,
-                "probabilities": b365_analysis["probabilities"], # Las probabilidades son iguales en ambos
+                "probabilities": b365_analysis["probabilities"],
                 "b365_kelly": b365_analysis["kelly_stakes"],
                 "b365_values": b365_analysis["value_bets"],
                 "pinnacle_kelly": pinnacle_analysis["kelly_stakes"],
                 "pinnacle_values": pinnacle_analysis["value_bets"]
             })
         except Exception as e:
-            print(f"Error calculating for {row.get('HomeTeam', 'Unknown')} vs {row.get('AwayTeam', 'Unknown')}: {e}")
+            import traceback
+            print(f"ERROR CRÍTICO en partido {row.get('HomeTeam', 'Unknown')} vs {row.get('AwayTeam', 'Unknown')}: {e}")
+            traceback.print_exc()
             continue
-            
+    
     return results
 
 

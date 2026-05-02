@@ -30,17 +30,23 @@ interface MatchRow {
 
 ## Patrones Defensivos Aplicados
 
-1. **Optional Chaining + Nullish Coalescing** en todos los accesos a datos del backend:
+1. **Renderizado Defensivo - Cuotas N/A:**
+   Los partidos se muestran independientemente de la disponibilidad de cuotas de casas individuales.
+   - Si una casa (ej: Pinnacle) tiene todas las cuotas en 0, muestra "N/A" en lugar de ocultar la fila
+   - Si una cuota individual es 0, muestra "-" en lugar de "0.00"
+   - Las probabilidades del modelo siempre se muestran (vienen del análisis, no del mercado)
+
+2. **Optional Chaining + Nullish Coalescing** en todos los accesos a datos del backend:
    ```typescript
    const rowProbs = m.probabilities?.[rowModel] ?? { Home: 0, Draw: 0, Away: 0 }
    ```
 
-2. **Booleanos Explícitos** para evitar hydration mismatch:
+3. **Booleanos Explícitos** para evitar hydration mismatch:
    ```typescript
    disabled={Boolean(isSimulating || isLoadingInitial)}
    ```
 
-3. **No Early Returns** en el mapeo de filas - siempre renderiza con valores por defecto
+4. **No Early Returns** en el mapeo de filas - siempre renderiza con valores por defecto
 
 ## Modelos Soportados
 
