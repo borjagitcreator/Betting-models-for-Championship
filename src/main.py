@@ -304,6 +304,8 @@ async def get_latest_matchday():
     
     results = []
     for _, row in latest_matches.iterrows():
+
+        print(f"DEBUG: Procesando {row['HomeTeam']} vs {row['AwayTeam']} | Date: {row['Date']}")
         try:
             params, avg_h_g, avg_a_g = get_params_at_time_enhanced(
                 target_date=row['Date'],
@@ -319,7 +321,7 @@ async def get_latest_matchday():
             )
             
             if params is None:
-                print(f"DEBUG: Params es None para {row['HomeTeam']} vs {row['AwayTeam']}")
+                print(f"DEBUG: ❌ FALLÓ cálculo para {row['HomeTeam']} vs {row['AwayTeam']}")
                 continue
             
             b365_odds = {
