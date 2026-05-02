@@ -384,17 +384,17 @@ const simValues = simResult?.value_bets?.[simModel]
                     latestMatches.map((m, i) => {
                       const rowKey = `${m.home_team}-${m.away_team}-${m.date}`
                       const rowModel = rowModels[rowKey] || 'Maher'
-                      const rowProbs = m.probabilities?.[rowModel]
                       
-                      // Extraer Kellys y Values para B365
-                      const b365Stakes = m.b365_kelly?.[rowModel]
-                      const b365Values = m.b365_values?.[rowModel]
+                      // Extraer probabilidades con fallback seguro
+                      const rowProbs = m.probabilities?.[rowModel] ?? { Home: 0, Draw: 0, Away: 0 }
                       
-                      // Extraer Kellys y Values para Pinnacle
-                      const pinnacleStakes = m.pinnacle_kelly?.[rowModel]
-                      const pinnacleValues = m.pinnacle_values?.[rowModel]
+                      // Extraer Kellys y Values para B365 con fallback
+                      const b365Stakes = m.b365_kelly?.[rowModel] ?? { Home: 0, Draw: 0, Away: 0 }
+                      const b365Values = m.b365_values?.[rowModel] ?? { Home: false, Draw: false, Away: false }
                       
-                      if (!rowProbs || !b365Stakes || !pinnacleStakes) return null;
+                      // Extraer Kellys y Values para Pinnacle con fallback
+                      const pinnacleStakes = m.pinnacle_kelly?.[rowModel] ?? { Home: 0, Draw: 0, Away: 0 }
+                      const pinnacleValues = m.pinnacle_values?.[rowModel] ?? { Home: false, Draw: false, Away: false }
 
                       return (
                         <tr key={i} className="hover:bg-zinc-900/40 transition-colors group">
@@ -558,7 +558,7 @@ const simValues = simResult?.value_bets?.[simModel]
                 )}
                 <button
                   onClick={() => handleSimulate()}
-                  disabled={isSimulating || isLoadingInitial}
+                  disabled={Boolean(isSimulating || isLoadingInitial)}
                   className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(37,99,235,0.2)] disabled:opacity-50 disabled:shadow-none"
                 >
                   {isSimulating ? 'Calculando...' : 'Ejecutar Simulación'}
