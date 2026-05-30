@@ -38,6 +38,9 @@ frontend/.next/
 frontend/node_modules/
 frontend/dist/
 
+# Resultados generados por results/generate_comparison.py
+results/
+
 # md personal files
 architecture.md
 CLAUDE.md

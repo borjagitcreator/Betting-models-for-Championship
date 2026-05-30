@@ -256,6 +256,22 @@ La interfaz se ha simplificado para centrarse exclusivamente en:
 
 ## Desarrollo
 
+### Levantar el dashboard
+
+Requiere el backend FastAPI activo. Instrucciones completas en el [README principal](../README.md#levantar-la-interfaz-completa-championship-hub).
+
+```bash
+# Terminal 1 — Backend
+cd src && uvicorn main:app --reload --port 8000
+
+# Terminal 2 — Frontend
+cd frontend/
+npm install
+npm run dev
+```
+
+Abrir http://localhost:3000
+
 ### Instalación de dependencias
 
 ```bash
@@ -267,8 +283,6 @@ npm install
 ```bash
 npm run dev
 ```
-
-Accede en `http://localhost:3000`
 
 ### Build de producción
 

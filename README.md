@@ -206,7 +206,7 @@ El stake se fija a 0 si el modelo no detecta valor esperado positivo frente a la
 2. **Modelo extendido**: `Dixon_Coles.ipynb` consume el mejor run de Maher desde MLflow → reoptimización con corrección de correlación y decay temporal.
 3. **Modelo ML**: `XGBoost.ipynb` entrena modelo calibrado con features dinámicas.
 4. **Tracking**: experimentos registrados en MLflow con comparación de métricas (log-likelihood, calibración, etc.).
-5. **Base de datos**: `mlflow_experimentos.db` contiene todos los runs y artefactos.
+5. **Base de datos**: `notebooks/mlflow_experimentos.db` contiene todos los runs y artefactos.
 
 ---
 
@@ -250,10 +250,11 @@ TFM/
 ├── .gitignore                         ← Exclusiones Git
 ├── requirements.txt                   ← Dependencias Python
 ├── test_api.py                        ← Script de prueba para endpoints
-├── mlflow_experimentos.db             ← Base de datos MLflow
 ├── architecture.md                    ← Arquitectura del sistema (legado)
 └── README.md                          ← Este archivo
 ```
+
+> **MLflow:** la base de datos de experimentos activa está en `notebooks/mlflow_experimentos.db`.
 
 ---
 
@@ -264,8 +265,38 @@ TFM/
 - Python 3.11+
 - Node.js 18+
 - SQLite
+- Base de datos `Data/historico.db` disponible (local o vía DVC: `dvc pull`)
 
-### Backend
+### Levantar la interfaz completa (Championship Hub)
+
+Abre **dos terminales** en la raíz del proyecto:
+
+**Terminal 1 — Backend (FastAPI):**
+```bash
+python -m venv venv
+source venv/bin/activate          
+pip install -r requirements.txt
+cd src/
+uvicorn main:app --reload --port 8000
+```
+
+**Terminal 2 — Frontend (Next.js):**
+```bash
+cd frontend/
+npm install
+npm run dev
+```
+
+**Acceso:**
+| Servicio | URL |
+|----------|-----|
+| Dashboard (UI) | http://localhost:3000 |
+| API Backend | http://localhost:8000 |
+| Swagger (docs API) | http://localhost:8000/docs |
+
+El frontend requiere que el backend esté activo en el puerto 8000. Si la API no responde, la tabla de jornada mostrará un banner de error pero la UI seguirá cargando.
+
+### Backend (referencia)
 
 ```bash
 # Crear entorno virtual (recomendado)
@@ -286,7 +317,7 @@ uvicorn main:app --reload --port 8000
 ```bash
 cd frontend/
 npm install
-npm run dev          # → http://localhost:3000
+npm run dev          
 ```
 
 ### Acceso a la aplicación
