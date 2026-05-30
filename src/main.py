@@ -257,7 +257,7 @@ async def get_config():
         try:
             config_xg = load_config_from_db('xgboost')
         except:
-            config_xg = {'kelly': 0.05, 'max_odd': 5.0, 'margin': 1.05}
+            config_xg = {'kelly': 0.01, 'max_odd': 5.0, 'margin': 1.155}
         
         return {
             "Maher": {
@@ -298,7 +298,7 @@ async def get_latest_matchday():
         try:
             config_xg = load_config_from_db('xgboost')
         except:
-            config_xg = {'kelly': 0.05, 'max_odd': 5.0, 'margin': 1.05}
+            config_xg = {'kelly': 0.01, 'max_odd': 5.0, 'margin': 1.155}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading config: {str(e)}")
     
@@ -389,7 +389,7 @@ async def predict_match(request: MatchPredictionRequest):
         try:
             config_xg = load_config_from_db('xgboost')
         except:
-            config_xg = {'kelly': 0.05, 'max_odd': 5.0, 'margin': 1.05}
+            config_xg = {'kelly': 0.01, 'max_odd': 5.0, 'margin': 1.155}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading config: {str(e)}")
     
